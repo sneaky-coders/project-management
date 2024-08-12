@@ -1,398 +1,353 @@
 <?php
 
-/* @var $this yii\web\View */
-
-use app\models\Client;
-use app\models\Employee;
-use app\models\LoginLog;
-use app\models\Purchase;
 use yii\helpers\Html;
-use app\models\Invoice;
-use yii\db\Expression;
-use yii\helpers\Json;
+use app\models\WebsiteWorkLog;
+use app\models\WebsiteRenewal;
+use app\models\Users; // User model
 
-$month = date('m'); // current month
+/* @var $this yii\web\View */
+/* @var $recentWorkLogs app\models\WebsiteWorkLog[] */
+/* @var $upcomingRenewals app\models\WebsiteRenewal[] */
 
-// Count total number of records for the specified month
-$currentMonth = date('m'); // Get the current month in numeric format (e.g., 01 for January, 02 for February, etc.)
+$this->title = 'Dashboard';
 
-$totalRevenue = Invoice::find()
-	->where(new Expression('MONTH(invoice_date) = :month', [':month' => $currentMonth]))
-	->sum('total');
+// Fetch recent work logs
+$recentWorkLogs = WebsiteWorkLog::find()
+    ->joinWith('maintainer')
+    ->joinWith('website')
+    ->orderBy(['work_date' => SORT_DESC])
+    ->limit(5)
+    ->all();
 
-$logsCount = LoginLog::find()->count();
+// Fetch websites coming up for renewal in the next 30 days
+$upcomingRenewals = WebsiteRenewal::find()
+    ->where(['status' => 'active'])
+    ->andWhere(['<=', 'renewal_date', date('Y-m-d', strtotime('+30 days'))])
+    ->all();
 
-$total = Invoice::find()->where(new Expression('MONTH(invoice_date) = :month', [':month' => $currentMonth]))->count();
+// Fetch all websites for renewal details
+$allWebsites = WebsiteRenewal::find()->all();
 
+// Fetch statistics
+$totalWebsites = WebsiteRenewal::find()->count();
+$totalWorkLogs = WebsiteWorkLog::find()->count();
+$totalUsers = Users::find()->count();  // Assuming you have a User model
 
-
-
-// Calculate the sum of the 'total' field for the specified month
-$totalSum = Invoice::find()->sum('total');
-$totalPurchase = Purchase::find()->sum('amount');
-$client = Client::find()->count();
-$emp = Employee::find()->count();
-
-$profit = $totalSum - $totalPurchase;
-$invoices = Invoice::find()->all();
-
-$chartData = [];
-foreach ($invoices as $invoice) {
-	$chartData[] = [
-		'x' => $invoice->invoice_number,
-		'y' => $invoice->total,
-		'payment_status' => $invoice->payment_status,
-	];
+// Set flash message for renewal alert
+if (!empty($upcomingRenewals)) {
+    Yii::$app->session->setFlash('renewalAlert', 'Some websites are coming up for renewal. Please check the details.');
 }
-
-$pie = Json::encode($chartData);
-
-// Fetch purchase data
-$purchases = Purchase::find()->all();
-
-// Calculate monthly revenue (assuming you have appropriate fields in your tables)
-$monthlyRevenue = [];
-foreach ($invoices as $invoice) {
-	$month = date('Y-m', strtotime($invoice->invoice_date));
-	if (!isset($monthlyRevenue[$month])) {
-		$monthlyRevenue[$month] = 0;
-	}
-	$monthlyRevenue[$month] += $invoice->total;
-}
-
-$months = json_encode(array_keys($monthlyRevenue));
-$revenues = json_encode(array_values($monthlyRevenue));
-
-$recentOrders = Invoice::find()
-	->joinWith('client')
-	->orderBy(['invoice_id' => SORT_DESC])
-	->limit(10)
-	->all();
-
 ?>
-<script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
-<!-- Main Content Header -->
-<div class="main-content-header">
-	<h1>Dashboard</h1>
-	<ol class="breadcrumb">
-		<li class="breadcrumb-item">
-			<a href="/">Dashboard</a>
-		</li>
-		<li class="breadcrumb-item active">
-			<span class="active">Sales</span>
-		</li>
-	</ol>
+
+<!-- Flash Messages -->
+<?php if (Yii::$app->session->hasFlash('renewalAlert')): ?>
+    <div class="alert alert-warning">
+        <?= Yii::$app->session->getFlash('renewalAlert') ?>
+    </div>
+<?php endif; ?>
+
+<!-- Dashboard Layout -->
+<div class="dashboard-container">
+
+    <!-- Statistics Overview -->
+    <div class="card statistics-overview">
+        <h2>Statistics Overview</h2>
+        <div class="stats">
+            <div class="stat-item">
+                <h3>Total Websites</h3>
+                <p><?= Html::encode($totalWebsites) ?></p>
+            </div>
+            <div class="stat-item">
+                <h3>Total Work Logs</h3>
+                <p><?= Html::encode($totalWorkLogs) ?></p>
+            </div>
+            <div class="stat-item">
+                <h3>Total Users</h3>
+                <p><?= Html::encode($totalUsers) ?></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Work Logs -->
+    <div class="card timeline">
+        <h2>Recent Work Logs</h2>
+        <div class="timeline-items">
+            <?php foreach ($recentWorkLogs as $log): ?>
+                <div class="timeline-item" onclick="showDetails('<?= Html::encode($log->work_description) ?>', '<?= Html::encode($log->maintainer->username) ?>', '<?= Html::encode($log->website->website_name) ?>', '<?= date('M d, Y', strtotime($log->work_date)) ?>')">
+                    <div class="timeline-content">
+                        <h4><?= Html::encode($log->work_description) ?></h4>
+                        <p><strong>Maintainer:</strong> <?= Html::encode($log->maintainer->username) ?></p>
+                        <p><strong>Website:</strong> <?= Html::encode($log->website->website_name) ?></p>
+                        <p><strong>Date:</strong> <?= date('M d, Y', strtotime($log->work_date)) ?></p>
+                    </div>
+                </div>
+            <?php endforeach; ?>
+        </div>
+    </div>
+
+    <!-- Upcoming Renewals -->
+    <div class="card upcoming-renewals">
+        <h2>Websites Coming Up for Renewal</h2>
+        <?php if (!empty($upcomingRenewals)): ?>
+            <ul class="renewal-list">
+                <?php foreach ($upcomingRenewals as $renewal): ?>
+                    <?php
+                        $currentDate = date('Y-m-d');
+                        $isPastRenewal = $renewal->renewal_date < $currentDate;
+                        $renewalClass = $isPastRenewal ? 'past-renewal' : '';
+                    ?>
+                    <li class="renewal-item <?= $renewalClass ?>" onclick="showRenewalDetails('<?= Html::encode($renewal->website_name) ?>', '<?= date('M d, Y', strtotime($renewal->renewal_date)) ?>', '<?= date('M d, Y', strtotime($renewal->last_renewal_date)) ?>')">
+                        <div class="website-name"><?= Html::encode($renewal->website_name) ?></div>
+                        <div class="renewal-date">Next Renewal: <?= date('M d, Y', strtotime($renewal->renewal_date)) ?></div>
+                    </li>
+                <?php endforeach; ?>
+            </ul>
+        <?php else: ?>
+            <p>No upcoming renewals.</p>
+        <?php endif; ?>
+    </div>
+
+    <!-- All Websites -->
+    <div class="card all-websites">
+        <h2>All Websites</h2>
+        <ul class="website-list">
+            <?php foreach ($allWebsites as $website): ?>
+                <li class="website-item">
+                    <div class="website-name"><?= Html::encode($website->website_name) ?></div>
+                    <div class="renewal-date">Last Renewal: <?= date('M d, Y', strtotime($website->last_renewal_date)) ?></div>
+                    <div class="next-renewal-date">Next Renewal: <?= date('M d, Y', strtotime($website->renewal_date)) ?></div>
+                </li>
+            <?php endforeach; ?>
+        </ul>
+    </div>
+
 </div>
 
-<?php
-$successMessage = Yii::$app->session->getFlash('success');
-if ($successMessage !== null) {
-	echo '<div class="alert alert-success flash-message" style="width: 40%;">' . $successMessage . '</div>';
-}
-
-
-$this->registerJs("
-    var options = {
-        chart: {
-            type: 'pie',
-        },
-        series: [],
-        labels: [],
-        colors: [],
-    };
-
-    var chartData = $pie;  // Echo the PHP variable containing JSON data
-
-    chartData.forEach(function(data) {
-        options.series.push(data.y);
-        options.labels.push(data.x);
-        // Set colors based on payment status
-        if (data.payment_status == 1) {
-            options.colors.push('#4CAF50'); // Green for paid
-        } else {
-            options.colors.push('#FFC107'); // Orange for pending or other statuses
-        }
-    });
-
-    var chart = new ApexCharts(document.querySelector('#sales-by-countries1'), options);
-    chart.render();
-", \yii\web\View::POS_END);
-
-
-?>
-<!-- End Main Content Header -->
-
-<!-- Stats Card -->
-<div class="row">
-	<div class="col-lg-3 col-sm-6">
-		<div class="stats-card-one mb-30">
-			<div class="d-flex justify-content-between align-items-center">
-				<div>
-					<p class="mb-10 line-height-1">Monthly Revenue</p>
-					<h3 class="mb-0 fs-25">₹<?php echo $totalRevenue ?></h3>
-				</div>
-
-				<span class="badge badge-cyan fs-12">
-					<i class="icofont-swoosh-up"></i>
-					<span class="fw-600 m-l-5">8.70%</span>
-				</span>
-			</div>
-
-			<div class="mt-15">
-				<div class="d-flex justify-content-between">
-					<div class="d-flex align-items-center">
-						<span>Monthly Goal</span>
-					</div>
-					<span class="fw-600">70%</span>
-				</div>
-
-				<div class="progress progress-sm mt-1">
-					<div class="progress-bar bg-primary" style="width: 70%"></div>
-				</div>
-			</div>
-		</div>
-	</div>
-
-	<div class="col-lg-3 col-sm-6">
-		<div class="stats-card-one mb-30">
-			<div class="d-flex justify-content-between align-items-center">
-				<div>
-					<p class="mb-10 line-height-1">Total Revenue</p>
-					<h3 class="mb-0 fs-25">₹<?php echo $totalSum ?></h3>
-				</div>
-
-				<span class="badge badge-cyan font-size-12">
-					<i class="icofont-swoosh-up"></i>
-					<span class="fw-600 m-l-5">8.80%</span>
-				</span>
-			</div>
-
-			<div class="mt-15">
-				<div class="d-flex justify-content-between">
-					<div class="d-flex align-items-center">
-						<span>Monthly Goal</span>
-					</div>
-					<span class="fw-600">75%</span>
-				</div>
-
-				<div class="progress progress-sm mt-1">
-					<div class="progress-bar bg-success" style="width: 75%"></div>
-				</div>
-			</div>
-		</div>
-	</div>
-
-	<div class="col-lg-3 col-sm-6">
-		<div class="stats-card-one mb-30">
-			<div class="d-flex justify-content-between align-items-center">
-				<div>
-					<p class="mb-10 line-height-1">Total Clients</p>
-					<h3 class="mb-0 fs-25"><?php echo $client ?></h3>
-				</div>
-
-				<span class="badge badge-red font-size-12">
-					<i class="icofont-swoosh-down"></i>
-					<span class="fw-600 m-l-5">6.10%</span>
-				</span>
-			</div>
-
-			<div class="mt-15">
-				<div class="d-flex justify-content-between">
-					<div class="d-flex align-items-center">
-						<span>Monthly Goal</span>
-					</div>
-					<span class="fw-600">60%</span>
-				</div>
-
-				<div class="progress progress-sm mt-1">
-					<div class="progress-bar bg-warning" style="width: 60%"></div>
-				</div>
-			</div>
-		</div>
-	</div>
-
-	<div class="col-lg-3 col-sm-6">
-		<div class="stats-card-one mb-30">
-			<div class="d-flex justify-content-between align-items-center">
-				<div>
-					<p class="mb-10 line-height-1">Total Employees</p>
-					<h3 class="mb-0 fs-25"><?php echo $emp ?></h3>
-				</div>
-
-				<span class="badge badge-red font-size-12">
-					<i class="icofont-swoosh-down"></i>
-					<span class="fw-600 m-l-5">5.70%</span>
-				</span>
-			</div>
-
-			<div class="mt-15">
-				<div class="d-flex justify-content-between">
-					<div class="d-flex align-items-center">
-						<span>Monthly Goal</span>
-					</div>
-					<span class="fw-600">50%</span>
-				</div>
-
-				<div class="progress progress-sm mt-1">
-					<div class="progress-bar bg-purple" style="width: 50%"></div>
-				</div>
-			</div>
-		</div>
-	</div>
-</div>
-<!-- End Stats Card -->
-
-<!-- Month Sales Statistics -->
-<div class="row">
-	<div class="col-lg-8">
-		<div class="card mb-30">
-			<div class="card-body">
-				<div class="card-header">
-					<h5 class="card-title"><?= Html::encode($this->title) ?></h5>
-				</div>
-				<div id="month-sales-statistics1" class="mh-100"></div>
-			</div>
-		</div>
-	</div>
-
-	<script>
-		var months = <?= $months ?>;
-		var revenues = <?= $revenues ?>;
-	</script>
-
-	<div class="col-lg-4">
-		<div class="card mb-30">
-			<div class="card-body">
-				<div class="card-header">
-					<h5 class="card-title">Overview</h5>
-				</div>
-
-				<div class="media pt-2 pb-3 border-bottom">
-					<div class="media-body">
-						<h4 class="mt-0 mb-1 font-size-22 font-weight-normal"><?php echo $logsCount ?></h4>
-						<span class="text-muted">Total Visitors</span>
-					</div>
-					<i data-feather="users" class="icon align-self-center theme-color"></i>
-				</div>
-
-				<div class="media py-3 border-bottom">
-					<div class="media-body">
-						<h4 class="mt-0 mb-1 font-size-22 font-weight-normal"><?php echo $profit ?></h4>
-						<span class="text-muted">Monthly Profit</span>
-					</div>
-					<i data-feather="dollar-sign" class="icon align-self-center theme-color"></i>
-				</div>
-
-				<div class="media py-3 border-bottom">
-					<div class="media-body">
-						<h4 class="mt-0 mb-1 font-size-22 font-weight-normal"><?php echo $total ?></h4>
-						<span class="text-muted">Monthly Orders</span>
-					</div>
-					<i data-feather="check-circle" class="icon align-self-center theme-color"></i>
-				</div>
-
-
-			</div>
-		</div>
-	</div>
+<!-- Modals -->
+<div id="workLogModal" class="modal">
+    <div class="modal-content">
+        <span class="close" onclick="closeModal('workLogModal')">&times;</span>
+        <h3>Work Log Details</h3>
+        <p id="workLogDescription"></p>
+        <p id="workLogMaintainer"></p>
+        <p id="workLogWebsite"></p>
+        <p id="workLogDate"></p>
+    </div>
 </div>
 
-<!-- Sales by Countries & Recent Order -->
-<div class="row">
-	<div class="col-lg-12 col-xl-5">
-		<div class="card mb-30">
-			<div class="card-body">
-				<div class="card-header">
-					<h5 class="card-title">Sales by Sales Order</h5>
-				</div>
-
-				<!-- File path: assets/js/apex-charts/sales-by-countries.js -->
-				<div id="sales-by-countries1"></div>
-			</div>
-		</div>
-	</div>
-
-	<div class="col-lg-12 col-xl-7">
-		<div class="card mb-30">
-			<div class="card-body">
-				<div class="card-header">
-				
-					<h5 class="card-title">Recent Sales Order</h5>
-				</div>
-
-				<div class="height-365">
-					<div class="table-responsive">
-						<table class="table table-hover mb-0">
-							<thead class="bort-none borpt-0">
-								<tr>
-									<th scope="col">ID</th>
-									<th scope="col">Invoice Number</th>
-									<th scope="col">Customer</th>
-									<th scope="col">Price</th>
-									<th scope="col">Status</th>
-								</tr>
-							</thead>
-							<tbody>
-								<?php foreach ($recentOrders as $order): ?>
-									<tr>
-										<td><strong>#<?= $order->invoice_id ?></strong></td>
-										<td><?= $order->invoice_number ?></td>
-										<td><?= $order->client->companyname ?? 'NA' ?></td>
-										<td>₹<?= $order->total ?></td>
-										<td>
-											<?php
-											if ($order->payment_status == 1) {
-												echo '<span class="badge badge-success py-1">Paid</span>';
-											} else {
-												echo '<span class="badge badge-warning py-1">Pending</span>';
-											}
-											?>
-										</td>
-									</tr>
-								<?php endforeach; ?>
-							</tbody>
-						</table>
-					</div>
-				</div>
-			</div>
-		</div>
-	</div>
+<div id="renewalModal" class="modal">
+    <div class="modal-content">
+        <span class="close" onclick="closeModal('renewalModal')">&times;</span>
+        <h3>Renewal Details</h3>
+        <p id="renewalWebsiteName"></p>
+        <p id="renewalDate"></p>
+        <p id="lastRenewalDate"></p>
+    </div>
 </div>
-
-
-<!-- Top Rated Products & Best Sellers -->
-
-<!-- Top Users Conversion Rate & Product Categories -->
 
 <script>
-	// Delay in milliseconds before hiding the flash message
-	const delay = 5000; // 5 seconds
+    function showDetails(description, maintainer, website, date) {
+        document.getElementById('workLogDescription').innerText = 'Description: ' + description;
+        document.getElementById('workLogMaintainer').innerText = 'Maintainer: ' + maintainer;
+        document.getElementById('workLogWebsite').innerText = 'Website: ' + website;
+        document.getElementById('workLogDate').innerText = 'Date: ' + date;
+        document.getElementById('workLogModal').style.display = 'block';
+    }
 
-	// Hide the flash message after a delay
-	setTimeout(() => {
-		const alert = document.querySelector('.alert');
-		if (alert) {
-			alert.style.display = 'none';
-		}
-	}, delay);
+    function showRenewalDetails(websiteName, renewalDate, lastRenewalDate) {
+        document.getElementById('renewalWebsiteName').innerText = 'Website: ' + websiteName;
+        document.getElementById('renewalDate').innerText = 'Next Renewal Date: ' + renewalDate;
+        document.getElementById('lastRenewalDate').innerText = 'Last Renewal Date: ' + lastRenewalDate;
+        document.getElementById('renewalModal').style.display = 'block';
+    }
 
-	document.addEventListener('DOMContentLoaded', function () {
-
-		var options = {
-			chart: {
-				type: 'bar'
-			},
-			series: [{
-				name: 'Revenue',
-				data: revenues
-			}],
-			xaxis: {
-				categories: months
-			}
-		}
-
-		var chart = new ApexCharts(document.querySelector("#month-sales-statistics1"), options);
-		chart.render();
-	});
-
+    function closeModal(modalId) {
+        document.getElementById(modalId).style.display = 'none';
+    }
 </script>
+
+<style>
+    /* General Styles */
+    body {
+        font-family: Arial, sans-serif;
+        background-color: #f4f7f6;
+        color: #333;
+    }
+
+    .alert {
+        padding: 15px;
+        margin-bottom: 20px;
+        border: 1px solid transparent;
+        border-radius: 4px;
+        background-color: #fff3cd;
+        color: #856404;
+    }
+
+    .alert-warning {
+        background-color: #fff3cd;
+        border-color: #ffeeba;
+    }
+
+    /* Card Styles */
+    .card {
+        background-color: #fff;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        padding: 20px;
+        margin-top: 20px;
+    }
+
+    /* Statistics Overview Styles */
+    .statistics-overview h2 {
+        font-size: 1.75rem;
+        color: #0072ff;
+    }
+
+    .stats {
+        display: flex;
+        justify-content: space-around;
+    }
+
+    .stat-item {
+        text-align: center;
+    }
+
+    .stat-item h3 {
+        font-size: 1.25rem;
+        color: #333;
+    }
+
+    .stat-item p {
+        font-size: 2rem;
+        font-weight: bold;
+        color: #0072ff;
+    }
+
+    /* Timeline Styles */
+    .timeline {
+        margin-top: 20px;
+    }
+
+    .timeline h2 {
+        font-size: 1.75rem;
+        color: #0072ff;
+    }
+
+    .timeline-item {
+        padding: 10px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        margin-bottom: 10px;
+        cursor: pointer;
+        background-color: #fff;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    .timeline-item:hover {
+        background-color: #f0f8ff;
+    }
+
+    .timeline-content h4 {
+        font-size: 1.2rem;
+        margin: 0;
+    }
+
+    .timeline-content p {
+        margin: 5px 0;
+    }
+
+    /* Upcoming Renewals Styles */
+    .upcoming-renewals h2 {
+        font-size: 1.75rem;
+        color: #0072ff;
+    }
+
+    .renewal-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+    }
+
+    .renewal-item {
+        padding: 10px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        margin-bottom: 10px;
+        cursor: pointer;
+        background-color: #fff;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    .renewal-item:hover {
+        background-color: #f0f8ff;
+    }
+
+    .past-renewal {
+        background-color: #f8d7da;
+        border-color: #f5c6cb;
+    }
+
+    .past-renewal .website-name {
+        color: #721c24;
+    }
+
+    /* All Websites Styles */
+    .all-websites h2 {
+        font-size: 1.75rem;
+        color: #0072ff;
+    }
+
+    .website-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+    }
+
+    .website-item {
+        padding: 10px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        margin-bottom: 10px;
+        background-color: #fff;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    /* Modal Styles */
+    .modal {
+        display: none;
+        position: fixed;
+        z-index: 1;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        overflow: auto;
+        background-color: rgb(0,0,0);
+        background-color: rgba(0,0,0,0.4);
+        padding-top: 60px;
+    }
+
+    .modal-content {
+        background-color: #fefefe;
+        margin: 5% auto;
+        padding: 20px;
+        border: 1px solid #888;
+        width: 80%;
+        max-width: 600px;
+    }
+
+    .close {
+        color: #aaa;
+        float: right;
+        font-size: 28px;
+        font-weight: bold;
+    }
+
+    .close:hover,
+    .close:focus {
+        color: black;
+        text-decoration: none;
+        cursor: pointer;
+    }
+</style>

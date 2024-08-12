@@ -103,16 +103,14 @@ if (!Yii::$app->user->isGuest) {
     <a class="nav-link dropdown-toggle" href="#" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
         <div class="menu-profile">
              <span class="name">' . (Yii::$app->user->isGuest ? '' : Yii::$app->user->identity->username) . '</span>
-             ' . Html::img('@web/uploads/' . Yii::$app->user->identity->image, ['class' => 'img-thumbnail', 'alt' => 'Profile Picture', "height" => "40px", "width" => "40px"]) . '
+           
         </div>
     </a>
     <div class="dropdown-menu">
         <!-- User details card -->
         <div class="user-details-card">
             <!-- Profile Image -->
-            <div class="profile-image">
-            ' . Html::img('@web/uploads/' . Yii::$app->user->identity->image, ['class' => 'rounded-circle', 'alt' => 'Profile Picture', "width" => "80px", "height" => "80px"]) . '
-            </div>
+           
             <!-- User Information -->
             <div class="user-info">
             <p>' . Yii::$app->user->identity->username . '</p>

@@ -66,8 +66,17 @@ class UsersController extends Controller
     {
         $model = new Users();
 
-        if ($model->load(Yii::$app->request->post()) && $model->save()) {
-            return $this->redirect(['view', 'id' => $model->id]);
+        if ($model->load(Yii::$app->request->post())) {
+             
+            // Generate password hash
+            $model->password = Yii::$app->security->generatePasswordHash($model->password);
+
+            if ($model->save()) {
+                Yii::$app->session->setFlash('success', 'User created successfully.'); // Set success flash message
+                return $this->redirect(['index']); // Redirect to the index page
+            } else {
+                Yii::$app->session->setFlash('error', 'Failed to create user.'); // Set error flash message
+            }
         }
 
         return $this->render('create', [
